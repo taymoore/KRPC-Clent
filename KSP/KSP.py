@@ -2,17 +2,20 @@
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 import krpc
-from enum import Enum
+import time
 
 # Handles connection to kRPC
 class KrpcClient(QThread):
     statusLabel_setText_trigger = pyqtSignal(['QString'])
+    launchPushButton_setEnabled_trigger = pyqtSignal(bool)
 
-    def __init__(self, statusLabel, parent=None):
+    def __init__(self, statusLabel, launchPushbutton, parent=None):
         super().__init__(parent=parent)
         self.isConnected = False
+        self.isFlying = False
         self.statusLabel_setText_trigger.connect(statusLabel.setText)
         self.statusLabel_setText_trigger.emit("Not Connected")
+        self.launchPushButton_setEnabled_trigger.connect(launchPushbutton.setEnabled)
 
     def connect(self):
         try:
@@ -23,29 +26,63 @@ class KrpcClient(QThread):
             self.isConnected = False
             self.statusLabel_setText_trigger.emit("Not Connected")
 
+    def launch(self):
+        self.vessel.control.throttle = 1
+        self.vessel.control.activate_next_stage()
+        self.isFlying = True
+
+    # Thread loop
     def run(self):
         self.exitThread = False
         while not self.exitThread:
             if not self.isConnected:
                 self.connect()
             else:
+                # Server Connection Successful
                 try:
-                    vessel = self.conn.space_center.active_vessel
-                    self.statusLabel_setText_trigger.emit("On Launchpad")
+                    self.vessel = self.conn.space_center.active_vessel
                 except:
                     self.statusLabel_setText_trigger.emit("In VAB")
+                    self.launchPushButton_setEnabled_trigger.emit(False)
+                    self.isFlying = False;
+                    continue
+                # Vessel exists
+                if not self.isFlying:
+                    self.statusLabel_setText_trigger.emit("On Launchpad")
+                    self.launchPushButton_setEnabled_trigger.emit(True)
+                    stage = 0
+                else:
+                    self.statusLabel_setText_trigger.emit("Flying")
+                    self.launchPushButton_setEnabled_trigger.emit(False)
+                    # Check next stage
+                    #fuel_amount = self.conn.get_call(self.vessel.resources.amount, 'SolidFuel')
+                    #expr = self.conn.krpc.Expression.less_than(
+                    #    self.conn.krpc.Expression.call(fuel_amount),
+                    #    self.conn.krpc.Expression.constant_float(0.5))
+                    #event = self.conn.krpc.add_event(expr)
+                    #with event.condition:
+                    #    event.wait()
+                    #print('Booster separation')
+                    #self.vessel.control.activate_next_stage()
+                    while stage is 0:
+                        fuel_amount = self.conn.get_call(self.vessel.resources.amount, "Solid Fuel")
+                        expr = self.conn.krpc.Expression.less_than(self.conn.krpc.Expression.call(fuel_amount), self.conn.krpc.Expression.constant_float(0.1))
+                        event = self.conn.krpc.add_event(expr)
+                        with event.condition:
+                            event.wait()
+                        self.vessel.control.activate_next_stage()
+                        self.statusLabel_setText_trigger.emit("Staged")
+                        stage += 1
+                    while stage is 1:
+                        time.sleep(1)
 
 
     def __del__(self):
         self.exit()
 
 # Qt callbacks
-def on_exitPushbutton_clicked():
-    app.closeAllWindows()
-    exit()
-
-def on_connectPushbutton_clicked():
-    krpcClient.connect()
+def on_launchPushbutton_clicked():
+    krpcClient.launch()
 
 # Main
 if __name__ == "__main__":
@@ -56,15 +93,12 @@ if __name__ == "__main__":
     statusLabel = QLabel()
     layout.addWidget(statusLabel)
 
-    connectPushbutton = QPushButton("Connect")
-    connectPushbutton.clicked.connect(on_connectPushbutton_clicked)
-    layout.addWidget(connectPushbutton)
+    launchPushbutton = QPushButton("Launch")
+    launchPushbutton.setEnabled(False)
+    launchPushbutton.clicked.connect(on_launchPushbutton_clicked)
+    layout.addWidget(launchPushbutton)
 
-    exitPushbutton = QPushButton("Exit")
-    exitPushbutton.clicked.connect(on_exitPushbutton_clicked)
-    layout.addWidget(exitPushbutton)
-
-    krpcClient = KrpcClient(statusLabel)
+    krpcClient = KrpcClient(statusLabel, launchPushbutton)
     krpcClient.start()
 
     window.setLayout(layout)

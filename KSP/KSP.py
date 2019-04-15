@@ -3,42 +3,41 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 import krpc
 from enum import Enum
-from multiprocessing import Process
 
 # Handles connection to kRPC
-class KrpcClient(QObject):
+class KrpcClient(QThread):
     statusLabel_setText_trigger = pyqtSignal(['QString'])
 
     def __init__(self, statusLabel, parent=None):
         super().__init__(parent=parent)
         self.isConnected = False
         self.statusLabel_setText_trigger.connect(statusLabel.setText)
-        #self.connectThread = self.ConnectThread()
-        #self.connect(self.connectThread, QtCore.SIGNAL("statusLabel_setText(QString)"), statusLabel.setText)
+        self.statusLabel_setText_trigger.emit("Not Connected")
 
     def connect(self):
         try:
-            self.conn = krpc.connect(name="Hello World")
-            vessel = self.conn.space_center.active_vessel
-            #print("connected to " + vessel.name)
-            #statusLabel.setText("Connected")
-            #self.emit(QtCore.SIGNAL("statusLabel_setText(QString)"), "Connected")
+            self.conn = krpc.connect(name="KRPC Client")
             self.isConnected = True
             self.statusLabel_setText_trigger.emit("Connected")
         except:
-            #print("Failed to connect to KRPC server")
-            #statusLabel.setText("Not Connected!")
-            #self.emit(QtCore.SIGNAL("statusLabel_setText(QString)"), "Not Connected")
             self.isConnected = False
             self.statusLabel_setText_trigger.emit("Not Connected")
 
-    #class ConnectThread(QThread):
-    #    def __del__(self):
-    #        self.exit()
+    def run(self):
+        self.exitThread = False
+        while not self.exitThread:
+            if not self.isConnected:
+                self.connect()
+            else:
+                try:
+                    vessel = self.conn.space_center.active_vessel
+                    self.statusLabel_setText_trigger.emit("On Launchpad")
+                except:
+                    self.statusLabel_setText_trigger.emit("In VAB")
 
-    #    def run(self):
-    #        while not self.isConnected and not self.exiting:
-    #            self.connect()
+
+    def __del__(self):
+        self.exit()
 
 # Qt callbacks
 def on_exitPushbutton_clicked():
@@ -50,7 +49,6 @@ def on_connectPushbutton_clicked():
 
 # Main
 if __name__ == "__main__":
-
     app = QApplication([])
     window = QWidget()
     layout = QVBoxLayout()
@@ -67,6 +65,7 @@ if __name__ == "__main__":
     layout.addWidget(exitPushbutton)
 
     krpcClient = KrpcClient(statusLabel)
+    krpcClient.start()
 
     window.setLayout(layout)
     window.show()

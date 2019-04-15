@@ -1,0 +1,23 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.28803.156
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "KSP", "KSP\KSP.pyproj", "{D6B85EB4-49F6-4608-B3C8-D98CB2E7EFDB}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{D6B85EB4-49F6-4608-B3C8-D98CB2E7EFDB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D6B85EB4-49F6-4608-B3C8-D98CB2E7EFDB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {0CDDD227-C7D1-4FCB-A666-5BFB1E8B8C61}
+	EndGlobalSection
+EndGlobal

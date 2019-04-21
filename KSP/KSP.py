@@ -31,6 +31,7 @@ class KrpcClient(QThread):
         self.vessel.control.throttle = 1
         self.vessel.control.activate_next_stage()
         self.isFlying = True
+        altitudeChart.start()
 
     # Thread loop
     def run(self):
@@ -76,37 +77,6 @@ class KrpcClient(QThread):
     def __del__(self):
         self.exit()
 
-    #chart = QChart()
-    #chart.legend().hide()
-    #chartView = QChartView(chart)
-
-    #chartView.setRenderHint(QPainter.Antialiasing)
-    #layout.addWidget(chartView)
-
-    #altitudeData = QLineSeries()
-    #pen = altitudeData.pen()
-    #pen.setWidthF(1)
-    #altitudeData.setPen(pen)
-    #altitudeData.setUseOpenGL(True)
-    #altitudeData.append(1,1)
-    #altitudeData.append(2,3)
-    #chart.addSeries(altitudeData)
-    #altitudeData.append(4,0)
-    #axisX = QValueAxis()
-    #axisX.setRange(0,5)
-    #axisX.setTickCount(5)
-    #chart.setAxisX(axisX)
-    #altitudeData.attachAxis(axisX)
-    #axisY = QValueAxis()
-    #axisY.setRange(0,5)
-    #axisY.setTickCount(5)
-    #chart.setAxisY(axisY)
-    #altitudeData.attachAxis(axisY)
-    ##altitudeChart.createDefaultAxes()
-    ##altitudeChartView.repaint()
-    ##altitudeChart.update()
-
-
 class Chart(QObject):
     def __init__(self, parent=None):
         super().__init__(parent=parent)
@@ -147,23 +117,22 @@ class Chart(QObject):
             self.axisY.setRange(self.axisYMin,self.axisYMax)
 
 class AltitudeChart(Chart):
-    x = 0
-    y = 0
     @pyqtSlot()
     def timeoutCallback(self):
-        print("Callback")
-        self.addData(self.x, self.y)
-        self.x += 1
-        self.y += 1
+        self.addData((QDateTime.currentMSecsSinceEpoch() - self.launchTime)/1000, krpcClient.vessel.flight(krpcClient.vessel.orbit.body.reference_frame).mean_altitude)
 
     def __init__(self, parent=None):
         super().__init__(parent=parent)
         self.timer = QTimer()
         self.timer.timeout.connect(self.timeoutCallback)
-        self.timer.setInterval(1000)
+        self.timer.setInterval(100)
+
+    def start(self):
         self.timer.start()
+        self.launchTime = QDateTime.currentMSecsSinceEpoch()
 
-
+    def stop(self):
+        self.timer.stop()
 
 # Qt callbacks
 def on_launchPushbutton_clicked():
@@ -184,8 +153,8 @@ if __name__ == "__main__":
     launchPushbutton.clicked.connect(on_launchPushbutton_clicked)
     layout.addWidget(launchPushbutton)
 
-    #krpcClient = KrpcClient(statusLabel, launchPushbutton)
-    #krpcClient.start()
+    krpcClient = KrpcClient(statusLabel, launchPushbutton)
+    krpcClient.start()
 
     altitudeChart = AltitudeChart()
 

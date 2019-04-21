@@ -123,18 +123,46 @@ class Chart(QObject):
         self.dataSeries.setUseOpenGL(True)
         self.chart.addSeries(self.dataSeries)
         self.axisX = QValueAxis()
-        self.axisX.setRange(0,5)
+        self.axisXMin = 0
+        self.axisXMax = 1
+        self.axisX.setRange(self.axisXMin,self.axisXMax)
         self.axisX.setTickCount(5)
         self.chart.setAxisX(self.axisX)
         self.dataSeries.attachAxis(self.axisX)
         self.axisY = QValueAxis()
-        self.axisY.setRange(0,5)
+        self.axisYMin = 0
+        self.axisYMax = 1
+        self.axisY.setRange(self.axisYMin,self.axisYMax)
         self.axisY.setTickCount(5)
         self.chart.setAxisY(self.axisY)
         self.dataSeries.attachAxis(self.axisY)
 
     def addData(self, x, y):
         self.dataSeries.append(x,y)
+        if(self.axisXMax < x):
+            self.axisXMax = x
+            self.axisX.setRange(self.axisXMin,self.axisXMax)
+        if(self.axisYMax < y):
+            self.axisYMax = y
+            self.axisY.setRange(self.axisYMin,self.axisYMax)
+
+class AltitudeChart(Chart):
+    x = 0
+    y = 0
+    @pyqtSlot()
+    def timeoutCallback(self):
+        print("Callback")
+        self.addData(self.x, self.y)
+        self.x += 1
+        self.y += 1
+
+    def __init__(self, parent=None):
+        super().__init__(parent=parent)
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.timeoutCallback)
+        self.timer.setInterval(1000)
+        self.timer.start()
+
 
 
 # Qt callbacks
@@ -159,10 +187,7 @@ if __name__ == "__main__":
     #krpcClient = KrpcClient(statusLabel, launchPushbutton)
     #krpcClient.start()
 
-    altitudeChart = Chart()
-    altitudeChart.addData(0,1)
-    altitudeChart.addData(1,2)
-    altitudeChart.addData(2,0)
+    altitudeChart = AltitudeChart()
 
     window.setLayout(layout)
     window.show()

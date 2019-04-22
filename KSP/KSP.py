@@ -13,7 +13,7 @@ class KrpcClient(QThread):
     def __init__(self, statusLabel, launchPushbutton, parent=None):
         super().__init__(parent=parent)
         self.isConnected = False
-        self.isFlying = False
+        #self.isFlying = False
         self.statusLabel_setText_trigger.connect(statusLabel.setText)
         self.statusLabel_setText_trigger.emit("Not Connected")
         self.launchPushButton_setEnabled_trigger.connect(launchPushbutton.setEnabled)
@@ -30,7 +30,8 @@ class KrpcClient(QThread):
     def launch(self):
         self.vessel.control.throttle = 1
         self.vessel.control.activate_next_stage()
-        self.isFlying = True
+        #self.isFlying = True
+        #stageComputer.start()
         altitudeChart.start()
 
     # Thread loop
@@ -40,43 +41,112 @@ class KrpcClient(QThread):
             if not self.isConnected:
                 self.connect()
             else:
-                # Server Connection Successful
                 try:
-                    self.vessel = self.conn.space_center.active_vessel
+                    gameScene = self.conn.krpc.current_game_scene
+                    if gameScene.name == 'flight':
+                        self.vessel = self.conn.space_center.active_vessel
+                        self.launchPushButton_setEnabled_trigger.emit(True)
+                        self.statusLabel_setText_trigger.emit("In Flight")
+                        stageComputer.start()
+                    elif gameScene.name == 'editor_vab':
+                        self.launchPushButton_setEnabled_trigger.emit(False)
+                        self.statusLabel_setText_trigger.emit("In VAB")
+                        stageComputer.stop()
+                    elif gameScene.name == 'space_center':
+                        self.launchPushButton_setEnabled_trigger.emit(False)
+                        self.statusLabel_setText_trigger.emit("Looking at Space Centre")
+                        stageComputer.stop()
+                    elif gameScene.name == 'tracking_station':
+                        self.launchPushButton_setEnabled_trigger.emit(False)
+                        self.statusLabel_setText_trigger.emit("In Tracking Station")
+                        stageComputer.stop()
+                    elif gameScene.name == 'editor_sph':
+                        self.launchPushButton_setEnabled_trigger.emit(False)
+                        self.statusLabel_setText_trigger.emit("In Space Plane Hangar")
+                        stageComputer.stop()
+                    else:
+                        self.statusLabel_setText_trigger.emit("I have no clue where I am..")
                 except:
-                    self.statusLabel_setText_trigger.emit("In VAB")
-                    self.launchPushButton_setEnabled_trigger.emit(False)
-                    self.isFlying = False;
-                    continue
-                # Vessel exists
-                if not self.isFlying:
-                    self.statusLabel_setText_trigger.emit("On Launchpad")
-                    self.launchPushButton_setEnabled_trigger.emit(True)
-                    stage = 0
-                else:
-                    self.statusLabel_setText_trigger.emit("Flying")
-                    self.launchPushButton_setEnabled_trigger.emit(False)
-                    # Check next stage
-                    while stage is 0:
-                        fuel_amount = self.conn.get_call(self.vessel.resources.amount, "Solid Fuel")
-                        expr = self.conn.krpc.Expression.less_than(self.conn.krpc.Expression.call(fuel_amount), self.conn.krpc.Expression.constant_float(0.1))
-                        event = self.conn.krpc.add_event(expr)
-                        with event.condition:
-                            event.wait()
-                        self.vessel.control.activate_next_stage()
-                        self.statusLabel_setText_trigger.emit("Staged")
-                        stage += 1
-                    while stage is 1:
-                        time.sleep(1)
-                        tick = 0
-                        #altitudeData.append(tick, 3)
-                        #altitudeChart.addSeries(altitudeData)
-                        #altitudeChart.createDefaultAxes()
+                    self.isFlying = False
+                time.sleep(1)
+                ## Server Connection Successful
+                #try:
+                #    self.vessel = self.conn.space_center.active_vessel
+                #except:
+                #    self.statusLabel_setText_trigger.emit("In VAB")
+                #    self.launchPushButton_setEnabled_trigger.emit(False)
+                #    self.isFlying = False;
+                #    continue
+                ## Vessel exists
+                #if not self.isFlying:
+                #    self.statusLabel_setText_trigger.emit("On Launchpad")
+                #    self.launchPushButton_setEnabled_trigger.emit(True)
+                #    stage = 0
+                #else:
+                #    self.statusLabel_setText_trigger.emit("Flying")
+                #    self.launchPushButton_setEnabled_trigger.emit(False)
+                #    # Check next stage
+                #    while stage is 0:
+                #        fuel_amount = self.conn.get_call(self.vessel.resources.amount, "Solid Fuel")
+                #        expr = self.conn.krpc.Expression.less_than(self.conn.krpc.Expression.call(fuel_amount), self.conn.krpc.Expression.constant_float(0.1))
+                #        event = self.conn.krpc.add_event(expr)
+                #        with event.condition:
+                #            event.wait()
+                #        self.vessel.control.activate_next_stage()
+                #        self.statusLabel_setText_trigger.emit("Staged")
+                #        stage += 1
+                #    while stage is 1:
+                #        time.sleep(1)
+                #        tick = 0
 
 
     def __del__(self):
         self.exit()
 
+class StageComputer(QThread):
+    def __init__(self, parent=None):
+        super().__init__(parent=parent)
+        self.isActive = False
+
+    def run(self):
+        self.isActive = True
+        while self.isActive:
+            #Determine resources in each stage
+            conn = krpc.connect(name="Staging Computer")
+            vessel = conn.space_center.active_vessel
+            stageResources = []
+            # For each stage
+            for x in range(0, 10):
+                # Get parts in stage
+                if x == 0:
+                    stageGroup = vessel.parts.in_decouple_stage(-1)
+                else:
+                    stageGroup = vessel.parts.in_decouple_stage(x)
+                # If we have parts
+                if(len(stageGroup) > 0):
+                    stageResources.append(dict())
+                    # For each part in stage
+                    for part in stageGroup:
+                        # Get resources in part
+                        resources = part.resources
+                        # For resources we care about
+                        resourceNames = {"SolidFuel", "Aniline", "Furfuryl", "IRFNA-III"}
+                        for resourceName in resourceNames:
+                            # If the parts has that resource
+                            if resources.has_resource(resourceName):
+                                # Record resource
+                                stageResources[x][resourceName] = resources.amount(resourceName)
+                                print("Stage " + str(x) + ": added " + resourceName + ": " + str(resources.amount(resourceName)))
+                # Else we don't have parts in this stage
+                else:
+                    break
+            print("We have " + str(len(stageResources)) + " stages")
+            conn.close()
+
+    def stop(self):
+        self.isActive = False
+
+# Charting
 class Chart(QObject):
     def __init__(self, parent=None):
         super().__init__(parent=parent)
@@ -155,6 +225,8 @@ if __name__ == "__main__":
 
     krpcClient = KrpcClient(statusLabel, launchPushbutton)
     krpcClient.start()
+
+    stageComputer = StageComputer()
 
     altitudeChart = AltitudeChart()
 

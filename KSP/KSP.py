@@ -7,7 +7,7 @@ import time
 
 # Handles connection to kRPC
 class KrpcClient(QThread):
-    statusLabel_setText_trigger = pyqtSignal(['QString'])
+    statusLabel_setText_trigger = pyqtSignal(['QString']) # For some reason, pyqtSignal can't be in constructor
     launchPushButton_setEnabled_trigger = pyqtSignal(bool)
 
     def __init__(self, statusLabel, launchPushbutton, parent=None):
@@ -104,44 +104,61 @@ class KrpcClient(QThread):
         self.exit()
 
 class StageComputer(QThread):
+    fuelProgressbar_setValue_trigger = pyqtSignal(int)
+
     def __init__(self, parent=None):
         super().__init__(parent=parent)
         self.isActive = False
+        self.fuelProgressbar_setValue_trigger.connect(fuelProgressbar.setValue)
 
     def run(self):
+        conn = krpc.connect(name="Staging Computer")
+        vessel = conn.space_center.active_vessel
         self.isActive = True
+        #Determine resources in each stage
+        stageResources = []
+        # For each stage
+        for x in range(0, 10):
+            # Get parts in stage
+            if x == 0:
+                stageGroup = vessel.parts.in_decouple_stage(-1)
+            else:
+                stageGroup = vessel.parts.in_decouple_stage(x)
+            # If we have parts in this stage
+            if(len(stageGroup) > 0):
+                stageResources.append(dict())
+                # For each part
+                for part in stageGroup:
+                    # Get resources in part
+                    resources = part.resources
+                    # For resources we care about
+                    resourceNames = {"SolidFuel", "Aniline", "Furfuryl", "IRFNA-III"}
+                    for resourceName in resourceNames:
+                        # If the part has that resource
+                        if resources.has_resource(resourceName):
+                            # Record resource
+                            stageResources[x][resourceName] = resources.amount(resourceName)
+                            print("Stage " + str(x) + ": added " + resourceName + ": " + str(resources.amount(resourceName)))
+            # Else we don't have parts in this stage
+            else:
+                break
+        print("We have " + str(len(stageResources)) + " stages")
         while self.isActive:
-            #Determine resources in each stage
-            conn = krpc.connect(name="Staging Computer")
-            vessel = conn.space_center.active_vessel
-            stageResources = []
-            # For each stage
-            for x in range(0, 10):
-                # Get parts in stage
-                if x == 0:
-                    stageGroup = vessel.parts.in_decouple_stage(-1)
-                else:
-                    stageGroup = vessel.parts.in_decouple_stage(x)
-                # If we have parts
-                if(len(stageGroup) > 0):
-                    stageResources.append(dict())
-                    # For each part in stage
-                    for part in stageGroup:
-                        # Get resources in part
-                        resources = part.resources
-                        # For resources we care about
-                        resourceNames = {"SolidFuel", "Aniline", "Furfuryl", "IRFNA-III"}
-                        for resourceName in resourceNames:
-                            # If the parts has that resource
-                            if resources.has_resource(resourceName):
-                                # Record resource
-                                stageResources[x][resourceName] = resources.amount(resourceName)
-                                print("Stage " + str(x) + ": added " + resourceName + ": " + str(resources.amount(resourceName)))
-                # Else we don't have parts in this stage
-                else:
-                    break
-            print("We have " + str(len(stageResources)) + " stages")
-            conn.close()
+            stageNum = len(stageResources)
+            #Find largest fuel value
+            fuelName = str()
+            fuelValMax = 0
+            for resourceName, resourceValMax in stageResources[stageNum-1].items():
+                if resourceValMax > fuelValMax:
+                    fuelName = resourceName
+                    fuelValMax = resourceValMax
+            fuelProgressbar.setMaximum(fuelValMax)
+            with conn.stream(vessel.resources.amount, fuelName) as fuelVal:
+                while self.isActive:
+                    #fuelProgressbar.setValue(fuelVal())
+                    self.fuelProgressbar_setValue_trigger.emit(fuelVal())
+                    #print("Has " + str(fuelVal()))
+        conn.close()
 
     def stop(self):
         self.isActive = False
@@ -154,7 +171,6 @@ class Chart(QObject):
         self.chartView = QChartView(self.chart)
         self.chart.legend().hide()
         self.chartView.setRenderHint(QPainter.Antialiasing)
-        layout.addWidget(self.chartView)
 
         self.dataSeries = QLineSeries()
         pen = self.dataSeries.pen()
@@ -213,24 +229,34 @@ if __name__ == "__main__":
     app = QApplication([])
     window = QWidget()
     window.setMinimumSize(800, 500)
-    layout = QVBoxLayout()
+    vLayout = QVBoxLayout()
 
     statusLabel = QLabel()
-    layout.addWidget(statusLabel)
+    vLayout.addWidget(statusLabel)
 
     launchPushbutton = QPushButton("Launch")
     launchPushbutton.setEnabled(False)
     launchPushbutton.clicked.connect(on_launchPushbutton_clicked)
-    layout.addWidget(launchPushbutton)
+    vLayout.addWidget(launchPushbutton)
+
+    hLayout = QHBoxLayout()
+    vLayout.addLayout(hLayout)
+
+    fuelProgressbar = QProgressBar()
+    fuelProgressbar.setOrientation(Qt.Vertical)
+    #fuelProgressbar.setFormat()
+    hLayout.addWidget(fuelProgressbar)
+
+    altitudeChart = AltitudeChart()
+    hLayout.addWidget(altitudeChart.chartView)
 
     krpcClient = KrpcClient(statusLabel, launchPushbutton)
     krpcClient.start()
 
     stageComputer = StageComputer()
 
-    altitudeChart = AltitudeChart()
 
-    window.setLayout(layout)
+    window.setLayout(vLayout)
     window.show()
 
     app.exec_()

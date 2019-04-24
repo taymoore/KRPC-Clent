@@ -105,11 +105,19 @@ class KrpcClient(QThread):
 
 class StageComputer(QThread):
     fuelProgressbar_setValue_trigger = pyqtSignal(int)
+    fuelProgressbar_timer_start_trigger = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent=parent)
         self.isActive = False
         self.fuelProgressbar_setValue_trigger.connect(fuelProgressbar.setValue)
+        self.fuelProgressbar_timer = QTimer()
+        self.fuelProgressbar_timer.timeout.connect(self.fuelProgressbar_timer_callback)
+        self.fuelProgressbar_timer.setInterval(50)
+        self.fuelProgressbar_timer_start_trigger.connect(self.fuelProgressbar_timer.start)
+
+    def fuelProgressbar_timer_callback(self):
+        self.fuelProgressbar_setValue_trigger.emit(self.fuelVal())
 
     def run(self):
         conn = krpc.connect(name="Staging Computer")
@@ -143,6 +151,8 @@ class StageComputer(QThread):
             else:
                 break
         print("We have " + str(len(stageResources)) + " stages")
+        # Staging Control Loop
+        # For each stage
         while self.isActive:
             stageNum = len(stageResources)
             #Find largest fuel value
@@ -153,11 +163,10 @@ class StageComputer(QThread):
                     fuelName = resourceName
                     fuelValMax = resourceValMax
             fuelProgressbar.setMaximum(fuelValMax)
-            with conn.stream(vessel.resources.amount, fuelName) as fuelVal:
+            with conn.stream(vessel.resources.amount, fuelName) as self.fuelVal:
+                self.fuelProgressbar_timer_start_trigger.emit()
                 while self.isActive:
-                    #fuelProgressbar.setValue(fuelVal())
-                    self.fuelProgressbar_setValue_trigger.emit(fuelVal())
-                    #print("Has " + str(fuelVal()))
+                    x = 1
         conn.close()
 
     def stop(self):

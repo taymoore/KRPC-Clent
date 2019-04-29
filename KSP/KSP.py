@@ -10,13 +10,13 @@ class KrpcClient(QThread):
     statusLabel_setText_trigger = pyqtSignal(['QString']) # For some reason, pyqtSignal can't be in constructor
     launchPushButton_setEnabled_trigger = pyqtSignal(bool)
 
-    def __init__(self, statusLabel, launchPushbutton, parent=None):
+    def __init__(self, statusLabel, parent=None):
         super().__init__(parent=parent)
         self.isConnected = False
         #self.isFlying = False
         self.statusLabel_setText_trigger.connect(statusLabel.setText)
         self.statusLabel_setText_trigger.emit("Not Connected")
-        self.launchPushButton_setEnabled_trigger.connect(launchPushbutton.setEnabled)
+        #self.launchPushButton_setEnabled_trigger.connect(launchPushbutton.setEnabled)
 
     def connect(self):
         try:
@@ -103,75 +103,6 @@ class KrpcClient(QThread):
     def __del__(self):
         self.exit()
 
-class StageComputer(QThread):
-    fuelProgressbar_setValue_trigger = pyqtSignal(int)
-    fuelProgressbar_timer_start_trigger = pyqtSignal()
-
-    def __init__(self, parent=None):
-        super().__init__(parent=parent)
-        self.isActive = False
-        self.fuelProgressbar_setValue_trigger.connect(fuelProgressbar.setValue)
-        self.fuelProgressbar_timer = QTimer()
-        self.fuelProgressbar_timer.timeout.connect(self.fuelProgressbar_timer_callback)
-        self.fuelProgressbar_timer.setInterval(50)
-        self.fuelProgressbar_timer_start_trigger.connect(self.fuelProgressbar_timer.start)
-
-    def fuelProgressbar_timer_callback(self):
-        self.fuelProgressbar_setValue_trigger.emit(self.fuelVal())
-
-    def run(self):
-        conn = krpc.connect(name="Staging Computer")
-        vessel = conn.space_center.active_vessel
-        self.isActive = True
-        #Determine resources in each stage
-        stageResources = []
-        # For each stage
-        for x in range(0, 10):
-            # Get parts in stage
-            if x == 0:
-                stageGroup = vessel.parts.in_decouple_stage(-1)
-            else:
-                stageGroup = vessel.parts.in_decouple_stage(x)
-            # If we have parts in this stage
-            if(len(stageGroup) > 0):
-                stageResources.append(dict())
-                # For each part
-                for part in stageGroup:
-                    # Get resources in part
-                    resources = part.resources
-                    # For resources we care about
-                    resourceNames = {"SolidFuel", "Aniline", "Furfuryl", "IRFNA-III"}
-                    for resourceName in resourceNames:
-                        # If the part has that resource
-                        if resources.has_resource(resourceName):
-                            # Record resource
-                            stageResources[x][resourceName] = resources.amount(resourceName)
-                            print("Stage " + str(x) + ": added " + resourceName + ": " + str(resources.amount(resourceName)))
-            # Else we don't have parts in this stage
-            else:
-                break
-        print("We have " + str(len(stageResources)) + " stages")
-        # Staging Control Loop
-        # For each stage
-        while self.isActive:
-            stageNum = len(stageResources)
-            #Find largest fuel value
-            fuelName = str()
-            fuelValMax = 0
-            for resourceName, resourceValMax in stageResources[stageNum-1].items():
-                if resourceValMax > fuelValMax:
-                    fuelName = resourceName
-                    fuelValMax = resourceValMax
-            fuelProgressbar.setMaximum(fuelValMax)
-            with conn.stream(vessel.resources.amount, fuelName) as self.fuelVal:
-                self.fuelProgressbar_timer_start_trigger.emit()
-                while self.isActive:
-                    x = 1
-        conn.close()
-
-    def stop(self):
-        self.isActive = False
-
 # Charting
 class Chart(QObject):
     def __init__(self, parent=None):
@@ -229,6 +160,73 @@ class AltitudeChart(Chart):
     def stop(self):
         self.timer.stop()
 
+class StageComputer(QThread):
+    fuelProgressbar_setValue_trigger = pyqtSignal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent=parent)
+        self.isActive = False
+        self.fuelProgressbar_setValue_trigger.connect(fuelProgressbar.setValue)
+
+    @staticmethod
+    def fuelValStream_callback(val):
+        stageComputer.fuelProgressbar_setValue_trigger.emit(val)
+
+    def run(self):
+        conn = krpc.connect(name="Staging Computer")
+        vessel = conn.space_center.active_vessel
+        self.isActive = True
+        #Determine resources in each stage
+        stageResources = []
+        # For each stage
+        for x in range(0, 10):
+            # Get parts in stage
+            if x == 0:
+                stageGroup = vessel.parts.in_decouple_stage(-1)
+            else:
+                stageGroup = vessel.parts.in_decouple_stage(x)
+            # If we have parts in this stage
+            if(len(stageGroup) > 0):
+                stageResources.append(dict())
+                # For each part
+                for part in stageGroup:
+                    # Get resources in part
+                    resources = part.resources
+                    # For resources we care about
+                    resourceNames = {"SolidFuel", "Aniline", "Furfuryl", "IRFNA-III"}
+                    for resourceName in resourceNames:
+                        # If the part has that resource
+                        if resources.has_resource(resourceName):
+                            # Record resource
+                            stageResources[x][resourceName] = resources.amount(resourceName)
+                            print("Stage " + str(x) + ": added " + resourceName + ": " + str(resources.amount(resourceName)))
+            # Else we don't have parts in this stage
+            else:
+                break
+        print("We have " + str(len(stageResources)) + " stages")
+
+        #Find largest fuel value in last stage
+        stageNum = len(stageResources)
+        fuelName = str()
+        fuelValMax = 0
+        for resourceName, resourceValMax in stageResources[stageNum-1].items():
+            if resourceValMax > fuelValMax:
+                fuelName = resourceName
+                fuelValMax = resourceValMax
+        fuelProgressbar.setMaximum(fuelValMax)
+        # Set fuelProgressBar control timer
+        self.fuelValStream = conn.add_stream(vessel.resources.amount, fuelName)
+        self.fuelValStream.add_callback(self.fuelValStream_callback)
+        self.fuelValStream.start()
+        #self.fuelProgressbar_timer_start_trigger.emit()
+        while self.isActive:
+            x = 1
+        self.fuelValStream.remove()
+        conn.close()
+
+    def stop(self):
+        self.isActive = False
+
 # Qt callbacks
 def on_launchPushbutton_clicked():
     krpcClient.launch()
@@ -243,29 +241,36 @@ if __name__ == "__main__":
     statusLabel = QLabel()
     vLayout.addWidget(statusLabel)
 
-    launchPushbutton = QPushButton("Launch")
-    launchPushbutton.setEnabled(False)
-    launchPushbutton.clicked.connect(on_launchPushbutton_clicked)
-    vLayout.addWidget(launchPushbutton)
-
     hLayout = QHBoxLayout()
     vLayout.addLayout(hLayout)
+
+    # Stage Computer
+    stageComputerGroupBox = QGroupBox("Stage Computer")
+    hLayout.addWidget(stageComputerGroupBox)
+    stageComputerLayout = QVBoxLayout()
+    stageComputerGroupBox.setLayout(stageComputerLayout)
 
     fuelProgressbar = QProgressBar()
     fuelProgressbar.setOrientation(Qt.Vertical)
     #fuelProgressbar.setFormat()
-    hLayout.addWidget(fuelProgressbar)
+    stageComputerLayout.addWidget(fuelProgressbar)
+
+    launchPushbutton = QPushButton("Launch")
+    launchPushbutton.setEnabled(False)
+    launchPushbutton.clicked.connect(on_launchPushbutton_clicked)
+    stageComputerLayout.addWidget(launchPushbutton)
+
+    stageComputer = StageComputer()
+
+    ###############
 
     altitudeChart = AltitudeChart()
     hLayout.addWidget(altitudeChart.chartView)
 
-    krpcClient = KrpcClient(statusLabel, launchPushbutton)
-    krpcClient.start()
-
-    stageComputer = StageComputer()
-
+    krpcClient = KrpcClient(statusLabel)
 
     window.setLayout(vLayout)
     window.show()
 
+    krpcClient.start()
     app.exec_()
